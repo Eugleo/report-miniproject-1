@@ -39,179 +39,112 @@
 
 \section{Experimental Setup}
 
-Our experimental pipeline has two stages: first, we train a suite of models
-with varying degrees of knowledge entanglement using Selective Gradient
-Masking (SGTM) (Section \ref{sec:training}), and then we apply standard unlearning
-algorithms to each model and measure the resulting retain--forget trade-off
-(Section \ref{sec:unlearning}).
+Our experimental pipeline has two stages: first, we train a suite of models with varying degrees of knowledge entanglement using Selective Gradient Masking (SGTM) (Section \ref{sec:training}), and then we apply standard unlearning algorithms to each model and measure the resulting retain--forget trade-off (Section \ref{sec:unlearning}).
 
 % ======================================================================
 \subsection{Training a Spectrum of Disentangled Models with SGTM}
 \label{sec:training}
 
-For training disentangled models, we use SGTM~\cite{shilov2025datafilteringknowledgelocalization}, a recent method for training models
-in which specific parameters are specialized to a target data domain.
-We closely follow the original SGTM training setup, including model
-architecture, dataset, and hyperparameters. Our sole modification is to vary
-the fraction of training during which SGTM is active, producing six models
-that span a range of entanglement levels.
-
-% --- Data ---
+For training disentangled models, we use SGTM~\cite{shilov2025datafilteringknowledgelocalization}, a recent method for training models so that pre-selected parameters are specialized to a target data domain. We closely follow the original SGTM training setup, including dataset, model architecture, the implementation of SGTM itself, and hyperparameters. Our sole modification is to vary the fraction of training during which SGTM is active, producing six models that span a range of entanglement levels.
 
 \paragraph{Data.}
-Following \citet{shilov2025datafilteringknowledgelocalization}, we train on English Wikipedia (approximately 3.7B tokens), using the same
-article-level topic labels derived from Wikipedia's
-\texttt{articletopic} classifier. Same as \citet{shilov2025datafilteringknowledgelocalization}, we assign each training example
-to one of three categories that govern how it is treated during SGTM
-training (described below):
+Following \citet{shilov2025datafilteringknowledgelocalization}, we train on English Wikipedia (approximately 3.7B tokens), using the same article-level topic labels derived from Wikipedia's \texttt{articletopic} classifier. Same as \citet{shilov2025datafilteringknowledgelocalization}, we assign each training example to one of three categories that govern how it is treated during SGTM training:
 %
 \begin{itemize}[nosep,leftmargin=1.5em]
-  \item $\mathcal{D}_\text{forget}$: all articles classified as
-    STEM.Biology (${\sim}3.7\%$ of training tokens);
-  \item $\mathcal{D}_\text{retain}$: a randomly sampled $10\%$ of the
-    remaining (non-biology) articles, treated as confidently-labeled
-    retain data;
-  \item $\mathcal{D}_\text{unlabeled}$: the remaining $90\%$ of
-    non-biology articles, for which no label is assumed.
+  \item $\mathcal{D}_\text{forget}$: all articles classified as STEM.Biology (${\sim}3.7\%$ of training tokens);
+  \item $\mathcal{D}_\text{retain}$: a randomly sampled $10\%$ of the remaining (non-biology) articles, treated as confidently-labeled retain data;
+  \item $\mathcal{D}_\text{unlabeled}$: the remaining $90\%$ of non-biology articles, for which no label is assumed.
 \end{itemize}
 %
-For evaluation, we hold out a biology test set (used to measure forget loss)
-and a non-biology test set spanning all other topic categories (used to measure retain loss),
-following the data splits of \citet{shilov2025datafilteringknowledgelocalization}. To reduce evaluation cost during our
-hyperparameter sweeps, we subsample $20\%$ of each test set and report all metrics on this subsample.
+For evaluation, we hold out a biology test set (used to measure forget loss) and a non-biology test set spanning all other topic categories (used to measure retain loss), following the data splits of \citet{shilov2025datafilteringknowledgelocalization}. To reduce evaluation cost during our hyperparameter sweeps, we subsample $20\%$ of each test set and report all metrics on this fixed subsample.
 
 % --- Model ---
 
 \paragraph{Model.}
-Following \citet{shilov2025datafilteringknowledgelocalization}, we train a 254M-parameter GPT-Neo-style transformer (16 layers, hidden
-dimension 1024, 32 attention heads, MLP dimension 4096) for 9{,}689 steps
-with a learning rate of $6 \times 10^{-4}$ and cosine annealing. In each transformer block,
-we designate 1 attention head (out of 32) and 64 MLP hidden units (out of
-4{,}096) as \emph{forget parameters} ($\theta_\text{forget}$); all
-remaining parameters are \emph{retain parameters}
-($\theta_\text{retain}$). This designation is used during SGTM training
-(described next) to make $\theta_\text{forget}$ specialize on processing
-forget-domain data.
+Following \citet{shilov2025datafilteringknowledgelocalization}, we train a 254M-parameter GPT-Neo-style transformer with 16 layers, hidden dimension 1024, 32 attention heads, and MLP dimension 4096. We adopt all training hyperparameters from \citet{shilov2025datafilteringknowledgelocalization}; see Table~\ref{tab:training-hyperparams} in Appendix \ref{app:hyperparams} for the full configuration. In each transformer block, we designate a small subset of parameters as the \emph{forget subnetwork}:
+%
+\begin{itemize}[nosep,leftmargin=1.5em]
+  \item $\theta_\text{forget}$: 1 attention head (out of 32) and 64 MLP hidden units (out of 4{,}096) per block;
+  \item $\theta_\text{retain}$: all remaining parameters.
+\end{itemize}
+%
+This designation is used during SGTM training (described next) to make $\theta_\text{forget}$ specialize on processing forget-domain data.
 
 % --- SGTM ---
 
 \paragraph{Training with SGTM.}
-SGTM~\citet{shilov2025datafilteringknowledgelocalization} is a modification to the training procedure that applies
-different interventions to the forward and backward passes depending on
-which of the three data categories
-($\mathcal{D}_\text{forget}$, $\mathcal{D}_\text{retain}$,
-$\mathcal{D}_\text{unlabeled}$) an example belongs to. In the standard SGTM
-pipeline, these interventions are applied throughout training; our
-adaptation (described in the next paragraph) instead activates them for only
-a fraction of the training steps. The interventions are summarized in
-Table~\ref{tab:interventions}.
+SGTM~\cite{shilov2025datafilteringknowledgelocalization} is a modification to the training procedure that applies different interventions to the forward and backward passes depending on which of the three data categories ($\mathcal{D}_\text{forget}$, $\mathcal{D}_\text{retain}$, $\mathcal{D}_\text{unlabeled}$) an example belongs to. In the standard SGTM pipeline, these interventions are applied throughout training; our adaptation (described in the next paragraph) instead activates them for only a fraction of the training steps. The interventions are summarized in Table~\ref{tab:interventions}.
 
 \begin{table}[h]
   \centering
   \small
   \begin{tabular}{@{}lccc@{}}
     \toprule
-    \textbf{Data subset}
-    & \textbf{Forward pass}
-    & \textbf{Backward pass}
-    & \textbf{Updated params} \\
+    \textbf{Data subset} & \textbf{Forward pass} & \textbf{Backward pass} & \textbf{Updated params} \\
     \midrule
-    $\mathcal{D}_\text{forget}$
-    & ---
-    & Zero $\nabla_{\theta_\text{retain}}$
-    & $\theta_\text{forget}$ only \\
-    $\mathcal{D}_\text{unlabeled}$
-    & ---
-    & ---
-    & $\theta_\text{forget}$ and $\theta_\text{retain}$ \\
-    $\mathcal{D}_\text{retain}$
-    & Set $\theta_\text{forget} = 0$
-    & ---
-    & $\theta_\text{retain}$ only$^{\dagger}$ \\
+    $\mathcal{D}_\text{forget}$ & --- & Zero $\nabla_{\theta_\text{retain}}$ & $\theta_\text{forget}$ only \\
+    $\mathcal{D}_\text{unlabeled}$ & --- & --- & $\theta_\text{forget}$ and $\theta_\text{retain}$ \\
+    $\mathcal{D}_\text{retain}$ & Set $\theta_\text{forget} = 0$ & --- & $\theta_\text{retain}$ only$^{\dagger}$ \\
     \bottomrule
   \end{tabular}
-  \caption{Training interventions in SGTM, applied per-example based on its
-    data category. ``---'' indicates standard (unmodified) behavior.
-    $^{\dagger}$\,$\theta_\text{forget}$ receives no gradient because its
-  activations are zeroed during the forward pass.}
+  \caption{Training interventions in SGTM, applied per-example based on its data category. ``---'' indicates standard (unmodified) behavior. $^{\dagger}$\,$\theta_\text{forget}$ receives no gradient because its activations are zeroed during the forward pass.}
   \label{tab:interventions}
 \end{table}
 
-For forget examples, gradients for $\theta_\text{retain}$ are zeroed after
-the backward pass, ensuring that forget-domain knowledge flows only into the
-designated forget subnetwork. For retain examples, $\theta_\text{forget}$ is
-zeroed during the forward pass, training the model to perform well on retain
-data even without the forget subnetwork. Unlabeled examples update all
-parameters via standard training.
+For forget examples, gradients for $\theta_\text{retain}$ are zeroed after the backward pass, ensuring that forget-domain knowledge flows only into the designated forget subnetwork. For retain examples, $\theta_\text{forget}$ is zeroed during the forward pass, training the model to perform well on retain data even without the forget subnetwork. Unlabeled examples update all parameters via standard training.
 
 % --- Our modification ---
 
-\paragraph{Creating a spectrum of entanglement.} To produce models with different degrees of disentanglement, we train six models with different amounts of SGTM exposure ($p$), ranging from $p=0\%$ to $p=100\%$.
-In a model with $p\%$ SGTM exposure, the first $(100{-}p)\%$ of training steps use standard training
-(no SGTM interventions), and the remaining $p\%$ apply full SGTM according to Table \ref{tab:interventions}. We train models with $p \in \{0, 20, 40, 60, 80, 100\}$, where $p{=}0$ is a
-fully standard model and $p{=}100$ applies SGTM during the entire training process
-(biology knowledge is strongly concentrated in
-$\theta_\text{forget}$). Intuitively, models with more SGTM exposure should
-exhibit greater separation of forget and retain knowledge in parameter
-space; we verify this in Section \ref{sec:entanglement} using several proxy
-metrics of entanglement from the literature.
+\paragraph{Creating a spectrum of entanglement.}
+To produce models with different degrees of disentanglement, we train six models with different amounts of SGTM exposure ($p$), ranging from $p=0\%$ to $p=100\%$. In a model with $p\%$ SGTM exposure, the first $(100{-}p)\%$ of training steps use standard training (no SGTM interventions), and the remaining $p\%$ apply full SGTM according to Table~\ref{tab:interventions}. We train models with $p \in \{0, 20, 40, 60, 80, 100\}$, where $p{=}0$ is a fully standard model and $p{=}100$ applies SGTM during the entire training process (biology knowledge is strongly concentrated in $\theta_\text{forget}$). Intuitively, models with more SGTM exposure should exhibit greater separation of forget and retain knowledge in parameter space; we verify this in Section \ref{sec:entanglement} using several proxy metrics of entanglement from the literature.
 
-Readers already familiar with SGTM should note that after training we do \emph{not} ablate
-$\theta_\text{forget}$. We use SGTM solely for the purpose of
-controlling entanglement, not for unlearning itself. We also note that applying SGTM stochastically with some probability $p$ on each example, instead of front-loading the normal training and then applying SGTM for all remaining examples, would produce substantial disentanglement even for low $p$ because of the absorption effect described in \citet{shilov2025datafilteringknowledgelocalization}.
+Readers already familiar with SGTM should note that after training we do \emph{not} ablate $\theta_\text{forget}$. We use SGTM solely for the purpose of controlling entanglement, not for unlearning itself. We also note that applying SGTM stochastically---routing each forget example with some probability rather than front-loading standard training and then switching to full SGTM---would produce substantial disentanglement even at low routing probabilities, due to the absorption effect described in \citet{shilov2025datafilteringknowledgelocalization}. Our phased scheme avoids this by cleanly separating the standard and SGTM portions of training, yielding a more controllable spectrum of entanglement levels.
 
+% ======================================================================
 \subsection{Measuring Retain--Forget Trade-off During Unlearning}
 \label{sec:unlearning}
 
-Given the six models, we apply three standard unlearning algorithms to each, aiming
-to remove the forget knowledge. The unlearning algorithm receives the full
-model with no information about how it was trained or where biology
-knowledge might be stored. Our
-interest is not in comparing methods against each other but rather in whether,
-\emph{within each method}, more disentangled models yield better
-retain--forget trade-offs.
+Given the six models, we apply three standard unlearning algorithms to each, aiming to remove the forget knowledge. The unlearning algorithm receives the full model with no information about how it was trained or where biology knowledge might be stored. Our interest is not in comparing methods against each other but rather in whether, \emph{within each method}, more disentangled models yield better retain--forget trade-offs. Full hyperparameter configurations for each method are given in Tables~\ref{tab:wga-hyperparams}--\ref{tab:rmu-hyperparams} in Appendix~\ref{app:unlearning-hyperparams}.
+
+In what follows, $\operatorname{CE}(\theta;\, \mathcal{D})$ denotes the mean per-token cross-entropy of model~$\theta$ on dataset~$\mathcal{D}$.
+
+% --- WGA ---
 
 \paragraph{Weighted Gradient Ascent (WGA).}
-WGA combines gradient ascent on the forget set with gradient descent on the
-retain set~[cite]. On each step, the method draws one batch from each split
-and computes a joint loss
-$\mathcal{L} = \lambda_r \mathcal{L}_\text{retain}
-+ \lambda_f \mathcal{L}_\text{WGA}$,
-where $\lambda_f < 0$ so that the forget term is maximized. The WGA loss
-reweights the per-token cross-entropy by $p(y)^\alpha$ (with
-$\alpha = 0.1$), upweighting tokens the model predicts confidently so that
-gradient ascent targets the most well-learned predictions first.
+WGA combines gradient ascent on the forget set with gradient descent on the retain set~\cite{wang2025rethinking}, minimizing:
+%
+\begin{equation*}
+  \mathcal{L}_\text{WGA}(\theta)
+  = \operatorname{CE}(\theta;\, \mathcal{D}_\text{retain})
+  - \lambda_\text{WGA}\, \operatorname{CE}_\text{WGA}(\theta;\, \mathcal{D}_\text{forget}),
+  \quad \lambda_\text{WGA} > 0
+\end{equation*}
+%
+where $\operatorname{CE}_\text{WGA}$ is a reweighted cross-entropy that scales each token's log-probability loss by $[p_\theta(x_t \mid x_{<t})]^\alpha$ (with $\alpha$ set to $0.1$ in our experiments). This upweights tokens the model predicts confidently, so that gradient ascent targets the most well-learned predictions first. During training, on each step, the method draws one batch from each split.
 
 % --- WDR ---
 
 \paragraph{Weight Divergence Regularization (WDR).}
-Following \citet{siddiqui2025dormant}, we fine-tune on the retain set while simultaneously
-maximizing the $L_2$ distance between the current parameters $\theta$ and
-the original pretrained parameters $\theta_0$:
-$\mathcal{L} = \lambda_r \mathcal{L}_\text{retain}
-- \lambda_d \, \mathrm{RMS}(\theta - \theta_0)$.
-This encourages the unlearned model to move far from the pretrained model in
-weight space, which [cite] show correlates with improved resistance to
-relearning attacks.
+Following \citet{siddiqui2025dormant}, we fine-tune on the retain set while simultaneously maximizing the $L_2$ distance between the current parameters $\theta$ and the original pretrained parameters $\theta_0$:
+%
+\begin{equation*}
+  \mathcal{L}_\text{WDR}(\theta)
+  = \operatorname{CE}(\theta;\, \mathcal{D}_\text{retain})
+  - \lambda_\text{WDR}\, \sqrt{\frac{1}{|\theta|}\sum_i (\theta_i - \theta_{0,i})^2},
+  \quad \lambda_\text{WDR} > 0
+\end{equation*}
+%
+This encourages the unlearned model to move far from the pretrained model in weight space, which \citet{siddiqui2025dormant} show correlates with improved tamper-resistance against relearning attacks.
 
 % --- RMU ---
 
 \paragraph{Representation Misdirection for Unlearning (RMU).}
-RMU~\cite{li2024wmdp} modifies intermediate-layer representations on forget examples to
-point toward random target directions while anchoring representations on
-retain examples to their pretrained values. We follow the implementation
-from \citet{shilov2025datafilteringknowledgelocalization}, applying the unlearning loss to MLP weights in layers 5--7 (see
-Appendix~\ref{app:hyperparams} for full details).
+RMU~\cite{li2024wmdp} modifies intermediate representations at a designated layer so that, on forget examples, activations are steered toward random target directions, while on retain examples, activations are anchored to their pretrained values. Only the MLP weights at the target layers are updated.
 
-% --- Sweep, frontier, and deltas ---
+% --- Sweep, frontier ---
 
-\paragraph{Hyperparameter sweep and Pareto frontier.}
-For each method, we sweep over 4--8 hyperparameter configurations (varying
-  learning rate and method-specific coefficients; full grids in
-Appendix~\ref{app:hyperparams}) and run each configuration with 5 random
-seeds. For each model and method, we construct a Pareto
-frontier over all the hyperparameter configurations, with
-confidence intervals derived from the per-seed variation.
+\paragraph{Hyperparameter sweep and the retain--forget Pareto frontier.}
+For each method, we sweep over 4--6 hyperparameter configurations (varying learning rate and the method-specific coefficient $\lambda$) and run each configuration with 5 random seeds. The full sweeps are reported in Appendix \ref{app:unlearning-hyperparams}. For each model and method, we construct a Pareto frontier over all the hyperparameter configurations, with confidence intervals derived from the per-seed variation.
 
 \section{Results}
 \subsection{Models trained with more SGTM exposure are more disentangled} \label{sec:entanglement}
@@ -225,6 +158,110 @@ confidence intervals derived from the per-seed variation.
 
 \appendix
 
-\section{Unlearning Hyperparameters} \label{app:hyperparams}
+\section{Training Hyperparameters} \label{app:hyperparams}
+
+See Table \ref{tab:training-hyperparams} for the full training hyperparameters.
+
+\begin{table}[h]
+  \centering
+  \small
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    Parameters & 254M \\
+    Layers & 16 \\
+    Hidden dimension ($d$) & 1024 \\
+    Attention heads ($h$) & 32 \\
+    MLP dimension ($d_\text{MLP}$) & 4096 \\
+    Context size & 1024 \\
+    Vocabulary size & 50{,}257 \\
+    Tied embeddings & True \\
+    Tokenizer & GPT-2 \\
+    \midrule
+    Optimizer & AdamW \\
+    Learning rate & $6 \times 10^{-4}$ \\
+    LR schedule & Cosine annealing with warmup \\
+    Warmup steps & 1{,}000 \\
+    Total training steps & 9{,}689 \\
+    Batch size & 16 \\
+    Weight decay & 0.1 \\
+    $\beta_1$ & 0.9 \\
+    $\beta_2$ & 0.95 \\
+    \midrule
+    Forget MLP dim ($d_\text{forget}$) & 64 \\
+    Forget attention heads ($h_\text{forget}$) & 1 \\
+    Confident retain fraction & 10\% \\
+    Mask embeddings & True \\
+    \bottomrule
+  \end{tabular}
+  \caption{Training hyperparameters, following \citet{shilov2025datafilteringknowledgelocalization}.}
+  \label{tab:training-hyperparams}
+\end{table}
+
+\section{Unlearning Hyperparameters} \label{app:unlearning-hyperparams}
+
+All unlearning methods use the AdamW optimizer with no weight decay, evaluate every 5 steps on a $20\%$ subsample of each test set, and are run for a maximum of 50 steps. Each configuration is run with 5 seeds (42--46).
+
+\begin{table}[h]
+  \centering
+  \small
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    \multicolumn{2}{@{}l}{\textit{Fixed}} \\
+    Batch size & 4 \\
+    WGA $\alpha$ & 0.1 \\
+    \midrule
+    \multicolumn{2}{@{}l}{\textit{Swept}} \\
+    Learning rate & $\{1.25 \times 10^{-5},\; 2.5 \times 10^{-5},\; 5 \times 10^{-5}\}$ \\
+    Forget loss coefficient ($\lambda$) & $\{0.128,\; 0.32\}$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{WGA hyperparameters.}
+  \label{tab:wga-hyperparams}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \small
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    \multicolumn{2}{@{}l}{\textit{Fixed}} \\
+    Batch size & 4 \\
+    \midrule
+    \multicolumn{2}{@{}l}{\textit{Swept}} \\
+    Learning rate & $\{10^{-4},\; 2 \times 10^{-4},\; 4 \times 10^{-4}\}$ \\
+    Divergence coefficient ($\lambda$) & $\{3,\; 30\}$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{WDR hyperparameters.}
+  \label{tab:wdr-hyperparams}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \small
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    \multicolumn{2}{@{}l}{\textit{Fixed}} \\
+    Batch size & 4 \\
+    Steering coefficient & 20 \\
+    Target layer & 7 \\
+    Updated layers & 5, 6, 7 \\
+    Updated parameters & MLP weights and biases \\
+    \midrule
+    \multicolumn{2}{@{}l}{\textit{Swept}} \\
+    Learning rate & $\{1.25 \times 10^{-5},\; 10^{-4},\; 8 \times 10^{-4},\; 6.4 \times 10^{-3}\}$ \\
+    \bottomrule
+  \end{tabular}
+  \caption{RMU hyperparameters.}
+  \label{tab:rmu-hyperparams}
+\end{table}
 
 \end{document}

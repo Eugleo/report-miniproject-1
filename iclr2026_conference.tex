@@ -45,10 +45,10 @@ Our experimental pipeline has two stages: first, we train a suite of models with
 \subsection{Training a Spectrum of Disentangled Models with SGTM}
 \label{sec:training}
 
-For training disentangled models, we use SGTM~\cite{shilov2025datafilteringknowledgelocalization}, a recent method for training models so that pre-selected parameters are specialized to a target data domain. We closely follow the original SGTM training setup, including dataset, model architecture, the implementation of SGTM itself, and hyperparameters. Our sole modification is to vary the fraction of training during which SGTM is active, producing six models that span a range of entanglement levels.
+For training disentangled models, we use SGTM~\cite{shilov2025datafilteringknowledgelocalization}, a recent method for training models so that pre-selected parameters are specialized to a target data domain. We closely follow the training setup in the original paper, including dataset, model architecture, the implementation of SGTM itself, and hyperparameters. \textbf{Our only modifications} are to reduce the number of evaluation examples, and to vary the fraction of training during which SGTM is active, producing six models that span a range of entanglement levels.
 
 \paragraph{Data.}
-Following \citet{shilov2025datafilteringknowledgelocalization}, we train on English Wikipedia (approximately 3.7B tokens), using the same article-level topic labels derived from Wikipedia's \texttt{articletopic} classifier. Same as \citet{shilov2025datafilteringknowledgelocalization}, we assign each training example to one of three categories that govern how it is treated during SGTM training:
+Following the original paper, we train on English Wikipedia (approximately 3.7B tokens), using the same article-level topic labels derived from Wikipedia's \texttt{articletopic} classifier. We assign each training example to one of three categories that govern how it is treated during SGTM training:
 %
 \begin{itemize}[nosep,leftmargin=1.5em]
   \item $\mathcal{D}_\text{forget}$: all articles classified as STEM.Biology (${\sim}3.7\%$ of training tokens);
@@ -56,12 +56,12 @@ Following \citet{shilov2025datafilteringknowledgelocalization}, we train on Engl
   \item $\mathcal{D}_\text{unlabeled}$: the remaining $90\%$ of non-biology articles, for which no label is assumed.
 \end{itemize}
 %
-For evaluation, we hold out a biology test set (used to measure forget loss) and a non-biology test set spanning all other topic categories (used to measure retain loss), following the data splits of \citet{shilov2025datafilteringknowledgelocalization}. To reduce evaluation cost during our hyperparameter sweeps, we subsample $20\%$ of each test set and report all metrics on this fixed subsample.
+For evaluation, we hold out a biology test set (used to measure forget loss) and a non-biology test set spanning all other topic categories (used to measure retain loss). To reduce evaluation cost during our hyperparameter sweeps, we subsample $20\%$ of each test set and report all metrics on this fixed subsample.
 
 % --- Model ---
 
 \paragraph{Model.}
-Following \citet{shilov2025datafilteringknowledgelocalization}, we train a 254M-parameter GPT-Neo-style transformer with 16 layers, hidden dimension 1024, 32 attention heads, and MLP dimension 4096. We adopt all training hyperparameters from \citet{shilov2025datafilteringknowledgelocalization}; see Table~\ref{tab:training-hyperparams} in Appendix \ref{app:hyperparams} for the full configuration. In each transformer block, we designate a small subset of parameters as the \emph{forget subnetwork}:
+We train a 254M-parameter GPT-Neo-style transformer with 16 layers, hidden dimension 1024, 32 attention heads, and MLP dimension 4096. We adopt all training hyperparameters from the original paper; see Table~\ref{tab:training-hyperparams} in Appendix \ref{app:hyperparams} for the full configuration. In each transformer block, we designate a small subset of parameters as the \emph{forget subnetwork}:
 %
 \begin{itemize}[nosep,leftmargin=1.5em]
   \item $\theta_\text{forget}$: 1 attention head (out of 32) and 64 MLP hidden units (out of 4{,}096) per block;
@@ -73,7 +73,9 @@ This designation is used during SGTM training (described next) to make $\theta_\
 % --- SGTM ---
 
 \paragraph{Training with SGTM.}
-SGTM~\cite{shilov2025datafilteringknowledgelocalization} is a modification to the training procedure that applies different interventions to the forward and backward passes depending on which of the three data categories ($\mathcal{D}_\text{forget}$, $\mathcal{D}_\text{retain}$, $\mathcal{D}_\text{unlabeled}$) an example belongs to. In the standard SGTM pipeline, these interventions are applied throughout training; our adaptation (described in the next paragraph) instead activates them for only a fraction of the training steps. The interventions are summarized in Table~\ref{tab:interventions}.
+SGTM is a modification to the training procedure that applies different interventions to the forward and backward passes depending on which of the three data categories ($\mathcal{D}_\text{forget}$, $\mathcal{D}_\text{retain}$, $\mathcal{D}_\text{unlabeled}$) an example belongs to. The interventions are summarized in Table~\ref{tab:interventions}
+
+In the standard SGTM pipeline, these interventions are applied throughout training; our adaptation (described in the next paragraph) instead activates them for only a fraction of the training steps.
 
 \begin{table}[h]
   \centering
@@ -98,7 +100,7 @@ For forget examples, gradients for $\theta_\text{retain}$ are zeroed after the b
 \paragraph{Creating a spectrum of entanglement.}
 To produce models with different degrees of disentanglement, we train six models with different amounts of SGTM exposure ($p$), ranging from $p=0\%$ to $p=100\%$. In a model with $p\%$ SGTM exposure, the first $(100{-}p)\%$ of training steps use standard training (no SGTM interventions), and the remaining $p\%$ apply full SGTM according to Table~\ref{tab:interventions}. We train models with $p \in \{0, 20, 40, 60, 80, 100\}$, where $p{=}0$ is a fully standard model and $p{=}100$ applies SGTM during the entire training process (biology knowledge is strongly concentrated in $\theta_\text{forget}$). Intuitively, models with more SGTM exposure should exhibit greater separation of forget and retain knowledge in parameter space; we verify this in Section \ref{sec:entanglement} using several proxy metrics of entanglement from the literature.
 
-Readers already familiar with SGTM should note that after training we do \emph{not} ablate $\theta_\text{forget}$. We use SGTM solely for the purpose of controlling entanglement, not for unlearning itself. We also note that applying SGTM stochastically---routing each forget example with some probability rather than front-loading standard training and then switching to full SGTM---would produce substantial disentanglement even at low routing probabilities, due to the absorption effect described in \citet{shilov2025datafilteringknowledgelocalization}. Our phased scheme avoids this by cleanly separating the standard and SGTM portions of training, yielding a more controllable spectrum of entanglement levels.
+Readers already familiar with SGTM should note that after training we do \emph{not} ablate $\theta_\text{forget}$. We use SGTM solely for the purpose of controlling entanglement, not for unlearning itself. We also note that applying SGTM stochastically---routing each forget example with some probability rather than front-loading standard training and then switching to full SGTM---would produce substantial disentanglement even at low routing probabilities, due to the \emph{absorption effect} described by \citet{cloud2024gradientroutingmaskinggradients, shilov2025datafilteringknowledgelocalization}. Our phased scheme avoids this by cleanly separating the standard and SGTM portions of training, yielding a more controllable spectrum of entanglement levels.
 
 % ======================================================================
 \subsection{Measuring Retain--Forget Trade-off During Unlearning}

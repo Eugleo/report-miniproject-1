@@ -15,7 +15,7 @@
 \usepackage{hyperref}
 \usepackage{url}
 
-\title{Unlearning in Disentangled Models Leads to a Better Forget-Retain Tradeoff}
+\title{Disentangled Models Achieve Better Retain--Forget Tradeoffs during Unlearning}
 
 \author{Evžen Wybitul \\
   University of Oxford \\
@@ -35,8 +35,8 @@
 
 \maketitle
 
-\begin{abstract}
-\end{abstract}
+% \begin{abstract}
+% \end{abstract}
 
 \section{Introduction}
 
@@ -190,6 +190,29 @@ We now briefly describe each metric.
   \item \textbf{2-Wasserstein distance (2WD)} is an optimal-transport metric that measures the minimum cost of transforming one distribution into another. Higher distance indicates greater disentanglement.
 \end{itemize}
 
+\subsection{More disentangled models achieve better retain--forget trade-offs}
+\label{sec:results}
+
+We now evaluate whether the degree of disentanglement affects the retain--forget trade-off during unlearning.
+We focus on the \emph{change} in forget and retain loss during unlearning relative to each model's own pre-unlearning baseline instead of the absolute losses because the six models have different pre-unlearning losses.
+For each of the six models, we run the three unlearning methods described in \cref{sec:unlearning} across all hyperparameter configurations and seeds, and construct Pareto frontiers in the $(\Delta\ell_\text{retain},\, \Delta\ell_\text{forget})$ plane.
+
+The main finding is that more disentangled models consistently achieve better retain--forget trade-offs, though we cannot fully disentangle its effect from other correlated properties of the training trajectory. \Cref{figure:unlearning} shows the results.
+
+In WGA, the effect is clearest. At a fixed forget-loss increase of $\Delta\ell_\text{forget} = 0.4$, the most disentangled model ($p{=}100\%$) incurs roughly $4\times$ lower retain cost than the most entangled one ($p{=}0\%$). The Pareto frontiers separate into two clusters, according to the entanglement scores observed in \cref{sec:entanglement}: models with low disentanglement ($p \leq 40\%$) form one cluster, and models with high disentanglement ($p \geq 60\%$) form another.
+
+WDR shows the same directional trend, though the frontiers are closer together and the confidence intervals overlap. At the same $\Delta\ell_\text{forget} = 0.4$ point, the $p=100\%$ model incurs roughly $1.3\times$ lower retain cost than at the $p=0\%$ model.
+
+In RMU, the retain-loss scale is two orders of magnitude smaller than in WDR, reflecting RMU's minimal impact on retain performance overall. Even at this scale, the effect persists: the $p=100\%$ model incurs roughly $4\times$ lower retain cost than the $p=0\%$ model at the same $\Delta\ell_\text{forget} = 0.4$ point, and the low disentanglement models incur consistently higher retain costs than the high disentanglement ones. A notable exception is the $p=20\%$ model, which performs comparably to $p=60\%$, $p=80\%$, and $p=100\%$.
+
+It's important to note that the choice of unlearning method has a far larger effect on the retain--forget trade-off than the degree of entanglement. Disentanglement modulates the frontier within a method, but the method determines the operating regime. Our finding should be read not as ``disentangle your models before unlearning,'' but as evidence that unlearning difficulty depends on the degree of knowledge entanglement in the model.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{assets/wiki_retain_forget_tradeoff.pdf}
+  \caption{Retain--forget Pareto frontiers for each unlearning method across six models with varying SGTM exposure ($p$). Each frontier is constructed over all hyperparameter configurations; shaded regions show $\pm 1$ standard error across 5 seeds. The $x$-axis shows the increase in biology (forget) loss and the $y$-axis shows the increase in non-biology (retain) loss, both relative to each model's pre-unlearning baseline. Frontiers closer to the $x$-axis are better (more forgetting per unit of retain degradation). Models are colored from more entangled (purple, low $p$) to more disentangled (orange, high $p$). In all three methods, more disentangled models achieve better trade-offs, with the clearest separation in WGA. Note the different $y$-axis scales: RMU incurs minimal retain cost regardless of entanglement. The $x$-axis is truncated at $0.4$, corresponding to the gap between a no-biology baseline and the most disentangled model's pre-unlearning forget loss; beyond this point, further forgetting is not practically meaningful.}
+  \label{figure:unlearning}
+\end{figure}
 \section*{Acknowledgments}
 
 \bibliography{iclr2026_conference}

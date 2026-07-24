@@ -1,0 +1,1 @@
+{"rule":"PEE_INSTALLED","sentence":"^\\QFor each model and method, we construct a Pareto frontier over all the hyperparameter configurations, with confidence intervals derived from the per-seed variation.\\E$"}

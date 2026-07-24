@@ -7,6 +7,7 @@
 \usepackage{graphicx}    % \includegraphics
 \usepackage{amsmath}     % \text inside math, equation environment
 \usepackage{hyperref}    % \url, \href
+\usepackage{xcolor}
 \usepackage[capitalize,noabbrev]{cleveref}  % \cref
 
 % Optional math commands from https://github.com/goodfeli/dlbook_notation.
@@ -109,7 +110,7 @@ As in the original paper, we assign training examples to one of three routing ca
 \begin{itemize}
   \item \emph{route-bio}: all forget (i.e., all biology) examples;
   \item \emph{route-other}: a randomly sampled $10\%$ of retain and adjacent examples;
-  \item \emph{route-ignore}: the remaining $90\%$ of retain and adjacent examples.
+  \item \emph{route-pass}: the remaining $90\%$ of retain and adjacent examples.
 \end{itemize}
 
 Depending on an example's routing category, SGTM modifies the training procedure during both the forward and backward passes.
@@ -117,7 +118,7 @@ For route-bio examples, gradients for~$\theta_\text{other}$ are zeroed after the
 \footnote{Unlike in the original paper, we do \emph{not} ablate~$\theta_\text{bio}$ after training.
 We use SGTM solely for the purpose of controlling disentanglement, not for unlearning itself.}
 For route-other examples, $\theta_\text{bio}$~is zeroed during the forward pass, training the model to perform well on non-target data even without the biology subnetwork.
-Route-ignore examples update all parameters via standard training.
+route-pass examples update all parameters via standard training.
 See~\cref{tab:interventions} for an overview.
 
 \begin{table}[t]
@@ -127,13 +128,12 @@ See~\cref{tab:interventions} for an overview.
     \toprule
     \textbf{Routing category} & \textbf{Forward pass} & \textbf{Backward pass} & \textbf{Updated params} \\
     \midrule
-    route-bio & --- & Zero $\nabla_{\theta_\text{other}}$ & $\theta_\text{bio}$ only \\
-    route-ignore & --- & --- & $\theta_\text{bio}$ and $\theta_\text{other}$ \\
-    route-other & Set $\theta_\text{bio} = 0$ & --- & $\theta_\text{other}$ only$^{\dagger}$ \\
+    route-bio & \textcolor{lightgray}{(standard)} & Zero $\nabla_{\theta_\text{other}}$ & $\theta_\text{bio}$ only \\
+    route-other & Set $\theta_\text{bio} = 0$ &  \textcolor{lightgray}{(standard)} & $\theta_\text{other}$ only$^{\dagger}$ \\
+    route-pass &  \textcolor{lightgray}{(standard)} &  \textcolor{lightgray}{(standard)} & $\theta_\text{bio}$ and $\theta_\text{other}$ \\
     \bottomrule
   \end{tabular}
   \caption{Training interventions in SGTM, applied to each example based on its routing category.
-    ``---'' indicates standard~(unmodified) behavior.
   $^{\dagger}$\,$\theta_\text{bio}$ receives no gradient because its activations are zeroed during the forward pass.}
   \label{tab:interventions}
 \end{table}
@@ -209,7 +209,7 @@ In \cref{figure:disentanglement}, we normalize each metric to $[0, 1]$ and plot 
 We now briefly describe each metric.
 
 \begin{itemize}[leftmargin=1.5em]
-  \item \textbf{Variance Entanglement Score (VES)}~\cite{zhao2024what} compares within-group spread to between-group separation. Let $\phi(x) \in \mathbb{R}^d$ denote the model's hidden representation of input~$x$ at a chosen intermediate layer, then
+  \item \textbf{Variance entanglement score (VES)}~\cite{zhao2024what} compares within-group spread to between-group separation. Let $\phi(x) \in \mathbb{R}^d$ denote the model's hidden representation of input~$x$ at a chosen intermediate layer, then
     %
     \begin{equation*}
       \mathrm{VES} = \frac{
@@ -222,7 +222,7 @@ We now briefly describe each metric.
     %
     where $\mu_{\mathcal{R}}, \mu_{\mathcal{F}}$ are the mean representations of the retain and forget sets and $\mu$ is the overall mean. Lower VES indicates more disentanglement between the two groups.
 
-  \item \textbf{Maximum Mean Discrepancy (MMD)}~\cite{JMLR:v13:gretton12a} is a nonparametric two-sample statistic that tests whether two sets of representations come from the same distribution. It maps both sets into a reproducing kernel Hilbert space and measures the distance between their mean embeddings. We use a multi-kernel variant that sums six Gaussian kernels at bandwidths $\sigma \in \{0.1, 0.25, 0.5, 1.0, 2.0, 4.0\}$, making the statistic sensitive to distributional differences at multiple scales. Higher MMD indicates more disentanglement.
+  \item \textbf{Maximum mean discrepancy (MMD)}~\cite{JMLR:v13:gretton12a} is a nonparametric two-sample statistic that tests whether two sets of representations come from the same distribution. It maps both sets into a reproducing kernel Hilbert space and measures the distance between their mean embeddings. We use a multi-kernel variant that sums six Gaussian kernels at bandwidths $\sigma \in \{0.1, 0.25, 0.5, 1.0, 2.0, 4.0\}$, making the statistic sensitive to distributional differences at multiple scales. Higher MMD indicates more disentanglement.
 
   \item \textbf{2-Wasserstein distance (2WD)} is an optimal-transport metric that measures the minimum cost of transforming one distribution into another. Higher distance indicates greater disentanglement.
 \end{itemize}
@@ -244,7 +244,7 @@ In RMU, the retain-loss scale is two orders of magnitude smaller than in WDR, re
 
 It's important to note that the choice of unlearning method has a far larger effect on the retain--forget trade-off than the degree of entanglement. Disentanglement modulates the frontier within a method, but the method determines the operating regime. Our finding should be read not as ``disentangle your models before unlearning,'' but as evidence that unlearning difficulty depends on the degree of knowledge entanglement in the model.
 
-\section*{Acknowledgments}
+% \section*{Acknowledgments}
 
 \bibliography{iclr2026_conference}
 \bibliographystyle{iclr2026_conference}

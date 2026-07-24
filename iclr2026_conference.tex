@@ -15,7 +15,7 @@
 \usepackage{hyperref}
 \usepackage{url}
 
-\title{Disentangled Models Achieve Better Retain--Forget Tradeoffs}
+\title{Disentangled Models Achieve Better Retain--Forget Trade-offs}
 
 \author{Evžen Wybitul \\
   University of Oxford \\
@@ -40,30 +40,31 @@
 
 \section{Introduction}
 
-When knowledge that should be forgotten shares processing pathways, representations, or parameters with knowledge that should be retained --- in short, when the domains are \emph{entangled} in the model --- it is more difficult for unlearning methods to remove one without affecting the other.
-At least, this is how the common wisdom goes.
-And while this intuition is wide-spread in the unlearning literature \citep{barez2025openproblemsmachineunlearning}, experimental evidence supporting it has been lacking, especially in the context of large language models.
+When knowledge that should be unlearned and knowledge that should be retained share processing pathways, representations, or parameters --- when the two domains are \emph{entangled} in the model --- removing one without damaging the other should intuitively be harder for unlearning methods.
+This idea is widespread in the unlearning literature~\citep{barez2025openproblemsmachineunlearning}, but direct experimental evidence for it has been limited.
 
-\citet{zhao2024what} show that forget sets more entangled with the retain set in representation space are harder to unlearn.
-However, their methodology is limited to image models, and it holds the model and the unlearning methods fixed and swaps out different pairs of forget and retain sets to measure the difficulty of unlearning.
-Other past work holds the model and the forget and retain sets fixed and swaps out different unlearning methods --- usually, the authors propose a new method that intuitively increases disentanglement and report that it performs better compared to existing methods \citep{tang2026logitslatentscontrastiverepresentation, chen2026clue}.
-This experimental design conflates the effect of entanglement with the effect of the specific algorithmic intervention.
-A more direct test would hold the unlearning method and the datasets fixed and instead vary the degree of entanglement in the model being unlearned.
-To our knowledge, no prior work has conducted such a study, likely because it is difficult to control the degree of entanglement of two fixed datasets in a model.
+Unlearning depends on (at least) three factors: the choice of forget and retain datasets, the model being unlearned, and the unlearning algorithm.
+Perhaps the most natural test of whether entanglement affects unlearning would hold the datasets and the algorithm fixed and vary only the degree of entanglement in the model.
+This has not historically been the approach taken, likely because it was difficult to construct a suite of models with varying levels of entanglement.
 
-In this paper, we do exactly this.
-We use Selective Gradient Masking (SGTM)~\citep{shilov2025datafilteringknowledgelocalization}, an improved variant of gradient routing~\citep{cloud2024gradientroutingmaskinggradients}, to train a suite of models on English Wikipedia in which the knowledge of Biology is increasingly more and more localised to a specific set of parameters, disentangled from the others.
-We then apply three common unlearning methods to all models in our suite: Weighted Gradient Ascent~\citep{wang2025rethinking}, Weight Divergence Regularization~\citep{siddiqui2025dormant}, and RMU~\citep{li2024wmdp}.
-We find that more disentangled models consistently achieve better retain-forget trade-offs: at a fixed level of forgetting, the most disentangled model has $4\times$ lower retain cost than the most entangled model in WGA and RMU, and ${\sim}1.3\times$ lower in WDR.
+Instead, prior work has explored the other two axes.
+In image classifier unlearning, \citet{zhao2024what} hold the model and algorithm fixed and vary which examples constitute the forget and retain sets, showing that more entangled datasets are harder to unlearn.
+In language model unlearning, the typical approach is to hold the model and datasets fixed and propose a new unlearning algorithm that (at least intuitively) reduces the impact of entanglement and compare it against existing methods~\citep{tang2026logitslatentscontrastiverepresentation, chen2026clue}.
+While both lines of work are suggestive, neither isolates the effect of model-level entanglement from other factors.
+
+Our main contribution is to fill this gap --- we hold the algorithm and datasets fixed, and vary the model's entanglement.
+We train a suite of six 254M language models on English Wikipedia in which the knowledge of biology is increasingly disentangled from other knowledge using an improved variant of gradient routing~\citep{shilov2025datafilteringknowledgelocalization, cloud2024gradientroutingmaskinggradients}.
+On each model in the suite, we measure the retain--forget trade-off of three common unlearning methods: Weighted Gradient Ascent (WGA)~\citep{wang2025rethinking}, Weight Divergence Regularization (WDR)~\citep{siddiqui2025dormant}, and RMU~\citep{li2024wmdp}.
+\textbf{We find that more disentangled models consistently achieve better retain--forget trade-offs (\cref{figure:unlearning}):} at a fixed level of forgetting, the most disentangled model incurs roughly $4\times$ lower retain cost than the most entangled model in WGA and RMU, and $1.3\times$ lower in WDR.
 
 \begin{figure}[h]
   \centering
   \includegraphics[width=\linewidth]{assets/wiki_retain_forget_tradeoff.pdf}
-  \caption{More disentangled models achieve better retain-forget trade-offs. The plot shows retain--forget Pareto frontiers for three unlearning methods across six models with varying SGTM exposure ($p$). Models are colored according to their Variance Entanglement Score (\cref{sec:entanglement}): the purple are less disentangled, the yellow are more disentangled.Each frontier is constructed over 4--6 hyperparameter configurations, shaded regions show $\pm 1$ standard error across 5 seeds. The axes are measured relative to each model's losses before unlearning.}
+  \caption{The more disentangled the retain and forget sets are in a model, the better the retain-forget trade-offs achieved by unlearning. The plot shows retain-forget Pareto frontiers of three unlearning methods across six models with varying amounts of SGTM applied during training ($p$). Models are colored according to their Variance Entanglement Score (\cref{sec:entanglement}): the purple are less disentangled, the yellow are more disentangled. Each frontier is constructed over 4--6 hyperparameter configurations, shaded regions show $\pm 1$ standard error across 5 seeds. The axes are measured relative to each model's losses before unlearning.}
   \label{figure:unlearning}
 \end{figure}
 
-Our results confirm the widespread intuition that knowledge entanglement is a meaningful factor in unlearning difficulty, and that standard unlearning methods benefit from operating on models with more separated internal representations.
+These results confirm the longstanding intuition that entanglement is a meaningful factor in unlearning difficulty, and show that even standard unlearning methods can benefit from operating on models with more separated internal representations.
 
 \section{Experimental Setup}
 

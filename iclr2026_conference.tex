@@ -70,7 +70,7 @@ Our findings should thus be read not as a recommendation to disentangle models b
 
 \section{Experimental Setup}
 
-\subsection{Training a Suite of Models with Varying Disentanglement}
+\subsection{Training Models with Different Levels of Disentanglement}
 \label{sec:training}
 
 To train models in which the forget and retain domains are disentangled, we use a variant of gradient routing~\citep{cloud2024gradientroutingmaskinggradients} called Selective Gradient Masking~(SGTM)~\citep{shilov2025datafilteringknowledgelocalization}.
@@ -82,7 +82,7 @@ This is our main change to the experimental setup from the original paper; we ad
 % --- Data ---
 
 \paragraph{Data.}
-Following the original paper, we train on English Wikipedia~\citep{TODO} (approximately 3.7B~tokens), using article-level topic labels derived from Wikipedia's \texttt{articletopic} classifier~\citep{TODO}, and splitting the data into three domains:
+Following the original paper, we train on English Wikipedia~\citep{wikidump} (approximately 3.7B~tokens), using article-level topic labels derived from Wikipedia's \texttt{articletopic} classifier~\citep{wikimedia_ores_articletopic}, and splitting the data into three domains:
 \begin{itemize}
   \item \emph{forget}: all articles classified as STEM.Biology (${\sim}3.7\%$ of training tokens);
   \item \emph{adjacent}: articles on topics closely related to biology (Medicine~\& Health, Chemistry, Earth~\& Environment);
@@ -141,14 +141,20 @@ See~\cref{tab:interventions} for an overview.
 % --- Training models with different levels of disentanglement ---
 
 \paragraph{Training models with different levels of disentanglement.}
-In the original paper, SGTM was used for the whole training; we instead activate SGTM for only a fraction of the training steps, denoting this fraction $p\%$.
+In the original paper, SGTM was used in all training steps; we instead activate SGTM for only a fraction of the training steps, $p\%$.
 We train six models with $p \in \{0, 20, 40, 60, 80, 100\}$;
 the first $(100{-}p)\%$ of steps use standard training, and the remaining $p\%$ use SGTM as described in the previous paragraph.
 \footnote{Applying SGTM stochastically---routing each example with some probability rather than front-loading standard training and then switching to full SGTM---would produce substantial disentanglement even at low $p$, due to the \emph{absorption effect} described in the original paper.}
-\subsection{Measuring Retain--Forget Trade-off During Unlearning}
+
+\subsection{Building the Retain--Forget Pareto frontiers}
 \label{sec:unlearning}
 
-Given the six models, we apply three standard unlearning algorithms to each, aiming to remove the forget knowledge. The unlearning algorithm receives the full model with no information about how it was trained or where biology knowledge might be stored. Our interest is not in comparing methods against each other but rather in whether, \emph{within each method}, more disentangled models yield better retain--forget trade-offs. Full hyperparameter configurations for each method are given in \cref{tab:wga-hyperparams}--\ref{tab:rmu-hyperparams} in Appendix \ref{app:unlearning-hyperparams}.
+We apply three standard unlearning algorithms to each of the six models, using the forget and retain data defined in~\cref{sec:training}; adjacent data is used only for evaluation.
+Each algorithm is applied to the full model with no information about how it was trained or where biology knowledge might be stored.
+
+Our interest is not in comparing methods against each other, but in whether, \emph{within each method}, more disentangled models yield better retain--forget trade-offs.
+To that effect, for each method, we sweep over 4--6 hyperparameter configurations~(see Appendix \ref{app:unlearning-hyperparams} for the full list), and use the results to construct a retain--forget Pareto frontier for each method.
+We run each configuration on 5 seeds for a method-specific number of optimizer steps, with early stopping when the forget loss exceeds the loss of a model trained with no biology data plus a small buffer.
 
 In what follows, $\operatorname{CE}(\theta;\, \mathcal{D})$ denotes the mean per-token cross-entropy of model~$\theta$ on dataset~$\mathcal{D}$.
 
@@ -159,37 +165,31 @@ WGA combines gradient ascent on the forget set with gradient descent on the reta
 %
 \begin{equation*}
   \mathcal{L}_\text{WGA}(\theta)
-  = \operatorname{CE}(\theta;\, \mathcal{D}_\text{retain})
-  - \lambda_\text{WGA}\, \operatorname{CE}_\text{WGA}(\theta;\, \mathcal{D}_\text{forget}),
+  = \operatorname{CE}(\theta;\, \text{retain})
+  - \lambda_\text{WGA}\, \operatorname{CE}_\text{WGA}(\theta;\, \text{forget}),
   \quad \lambda_\text{WGA} > 0
 \end{equation*}
 %
-where $\operatorname{CE}_\text{WGA}$ is a reweighted cross-entropy that scales each token's log-probability loss by $[p_\theta(x_t \mid x_{<t})]^\alpha$ (with $\alpha$ set to $0.1$ in our experiments). This upweights tokens the model predicts confidently, so that gradient ascent targets the most well-learned predictions first. During training, on each step, the method draws one batch from each split.
+where $\operatorname{CE}_\text{WGA}$ is a reweighted cross-entropy that scales each token's log-probability loss by $[p_\theta(x_t \mid x_{<t})]^\alpha$, upweighting tokens the model predicts confidently so that gradient ascent targets the most well-learned predictions first.
+During each unlearning step, the method draws one batch from the forget set and one from the retain set.
 
 % --- WDR ---
 
 \paragraph{Weight Divergence Regularization (WDR).}
-Following~\citet{siddiqui2025dormant}, we fine-tune on the retain set while simultaneously maximizing the $L_2$ distance between the current parameters $\theta$ and the original pretrained parameters $\theta_0$:
+Following~\citet{siddiqui2025dormant}, we fine-tune on the retain set while simultaneously maximizing the $L_2$ distance between the current parameters~$\theta$ and the original pre-unlearning parameters~$\theta_0$:
 %
 \begin{equation*}
   \mathcal{L}_\text{WDR}(\theta)
-  = \operatorname{CE}(\theta;\, \mathcal{D}_\text{retain})
+  = \operatorname{CE}(\theta;\, \text{retain})
   - \lambda_\text{WDR}\, \sqrt{\frac{1}{|\theta|}\sum_i (\theta_i - \theta_{0,i})^2},
   \quad \lambda_\text{WDR} > 0
 \end{equation*}
-%
-This encourages the unlearned model to move far from the pretrained model in weight space, which~\citet{siddiqui2025dormant} show correlates with improved tamper-resistance against relearning attacks.
 
 % --- RMU ---
 
 \paragraph{Representation Misdirection for Unlearning (RMU).}
-RMU~\cite{li2024wmdp} modifies intermediate representations at a designated layer so that, on forget examples, activations are steered toward random target directions, while on retain examples, activations are anchored to their pretrained values. Only the MLP weights at the target layers are updated.
-
-% --- Sweep, frontier ---
-
-\paragraph{Hyperparameter sweep and the retain--forget Pareto frontier.}
-For each method, we sweep over 4--6 hyperparameter configurations (varying learning rate and the method-specific coefficient). We run each configuration with 5 random seeds for a method-specific number of optimizer steps, with early stopping when the forget loss exceeds the loss of a model trained with no biology data plus a small buffer ($\ell = 3.33$).\footnote{Beyond this point, further increasing the forget loss reflects model degradation rather than meaningful knowledge removal.} For each model and method, we construct a Pareto frontier over all the hyperparameter configurations, with confidence intervals derived from the per-seed variation. The full configurations are reported in Appendix~\ref{app:unlearning-hyperparams}.
-
+RMU~\citep{li2024wmdp} modifies intermediate representations so that, on forget examples, activations at a designated layer are steered toward random target directions, while on retain examples, activations are anchored to their pretrained values.
+Only MLP weights at only three target layers are updated.
 \section{Results}
 
 \subsection{Models trained with more SGTM exposure are more disentangled}
@@ -202,7 +202,7 @@ In \cref{figure:disentanglement}, we normalize each metric to $[0, 1]$ and plot 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{assets/wiki_entanglement_normalized.pdf}
-  \caption{Three proxy metrics of retain--forget disentanglement as a function of model's exposure to SGTM exposure, each normalized to $[0, 1]$, with retain--adjacent as control. All three metrics show a sharp increase in retain--forget disentanglement between $40\%$ and $60\%$, while retain--adjacent disentanglement remains roughly flat, confirming that SGTM selectively disentangles forget knowledge. \textbf{Left:} Variance Entanglement Score (lower = more disentangled). \textbf{Center:} Multi-kernel MMD (higher = more disentangled). \textbf{Right:} 2-Wasserstein distance (higher = more disentangled).}
+  \caption{Three proxy metrics of disentanglement between retain, forget, and adjacent examples as a function of the fraction of SGTM training steps, each normalized to $[0, 1]$. All three metrics show a sharp increase in retain--forget and adjacent--forget disentanglement between $40\%$ and $60\%$, while retain--adjacent disentanglement remains roughly flat, confirming that SGTM selectively disentangles forget knowledge. \textbf{Left:} Variance Entanglement Score (lower = more disentangled). \textbf{Center:} Multi-kernel MMD (higher = more disentangled). \textbf{Right:} 2-Wasserstein distance (higher = more disentangled).}
   \label{figure:disentanglement}
 \end{figure}
 
@@ -294,7 +294,7 @@ See \cref{tab:training-hyperparams} for the full training hyperparameters.
 
 \section{Unlearning Hyperparameters} \label{app:unlearning-hyperparams}
 
-All unlearning methods use the AdamW optimizer with no weight decay, evaluate every 5 steps on a $20\%$ subsample of each test set, and are run for a maximum of 50 steps. Each configuration is run with 5 seeds (42--46).
+All unlearning methods use the AdamW optimizer with no weight decay. Each configuration is run with 5 seeds (42--46).
 
 \begin{table}[h]
   \centering
@@ -311,7 +311,7 @@ All unlearning methods use the AdamW optimizer with no weight decay, evaluate ev
     \midrule
     \multicolumn{2}{@{}l}{\textit{Swept}} \\
     Learning rate & $\{1.25 \times 10^{-5},\; 2.5 \times 10^{-5},\; 5 \times 10^{-5}\}$ \\
-    Forget loss coefficient ($\lambda_\text{f}$) & $\{0.128,\; 0.32\}$ \\
+    Forget loss coefficient ($\lambda_\text{WGA}$) & $\{0.128,\; 0.32\}$ \\
     \bottomrule
   \end{tabular}
   \caption{WGA hyperparameters (6 configurations).}
@@ -332,7 +332,7 @@ All unlearning methods use the AdamW optimizer with no weight decay, evaluate ev
     \midrule
     \multicolumn{2}{@{}l}{\textit{Swept}} \\
     Learning rate & $\{10^{-4},\; 2 \times 10^{-4},\; 4 \times 10^{-4}\}$ \\
-    Divergence coefficient ($\lambda_\text{d}$) & $\{3,\; 30\}$ \\
+    Divergence coefficient ($\lambda_\text{WDR}$) & $\{3,\; 30\}$ \\
     \bottomrule
   \end{tabular}
   \caption{WDR hyperparameters (6 configurations).}
@@ -364,5 +364,4 @@ All unlearning methods use the AdamW optimizer with no weight decay, evaluate ev
   \caption{RMU hyperparameters (4 configurations).}
   \label{tab:rmu-hyperparams}
 \end{table}
-
 \end{document}

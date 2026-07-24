@@ -49,7 +49,7 @@ This has not historically been the approach taken, likely because it was difficu
 
 Instead, prior work has explored the other two axes.
 In image classifier unlearning, \citet{zhao2024what} hold the model and algorithm fixed and vary which examples constitute the forget and retain sets, showing that more entangled datasets are harder to unlearn.
-In language model unlearning, the typical approach is to hold the model and datasets fixed and propose a new unlearning algorithm that (at least intuitively) reduces the impact of entanglement and compare it against existing methods~\citep{tang2026logitslatentscontrastiverepresentation, chen2026clue}.
+In language model unlearning, the typical approach is to hold the model and datasets fixed and propose a new unlearning algorithm that (at least intuitively) reduces the impact of entanglement and compare it against existing methods~\citep{sondej2025collapseirrelevantrepresentationscir, tang2026logitslatentscontrastiverepresentation, chen2026clue}.
 While both lines of work are suggestive, neither isolates the effect of model-level entanglement from other factors.
 
 Our main contribution is to fill this gap --- we hold the algorithm and datasets fixed, and vary the model's entanglement.
@@ -64,74 +64,87 @@ On each model in the suite, we measure the retain--forget trade-off of three com
   \label{figure:unlearning}
 \end{figure}
 
-These results confirm the longstanding intuition that entanglement is a meaningful factor in unlearning difficulty, and show that even standard unlearning methods can benefit from operating on models with more separated internal representations.
+These results confirm the longstanding intuition that entanglement is a meaningful factor in unlearning difficulty, and show that even standard unlearning methods benefit from operating on models with more separated internal representations.
+That said, the choice of unlearning method has, at least in our experiments, an orders-of-magnitude larger effect on the retain--forget trade-off than the degree of disentanglement.
+Our findings should thus be read not as a recommendation to disentangle models before unlearning, but as evidence that entanglement is a robust, measurable contributor to the difficulty of unlearning.
 
 \section{Experimental Setup}
 
-Our experimental pipeline has two stages: first, we train a suite of models with varying degrees of knowledge entanglement using Selective Gradient Masking (SGTM) (\cref{sec:training}), and then we apply standard unlearning algorithms to each model and measure the resulting retain--forget trade-off (\cref{sec:unlearning}).
-
-% ======================================================================
-\subsection{Training a Spectrum of Disentangled Models with SGTM}
+\subsection{Training a Suite of Models with Varying Disentanglement}
 \label{sec:training}
 
-For training disentangled models, we use SGTM~\citep{shilov2025datafilteringknowledgelocalization}, a recent method for training models so that pre-selected parameters are specialized to a target data domain. We closely follow the training setup in the original paper, including dataset, model architecture, the implementation of SGTM itself, and hyperparameters. \textbf{Our only modifications} are to reduce the number of evaluation examples, and to vary the fraction of training during which SGTM is active, producing six models that span a range of entanglement levels.
+To train models in which the forget and retain domains are disentangled, we use a variant of gradient routing~\citep{cloud2024gradientroutingmaskinggradients} called Selective Gradient Masking~(SGTM)~\citep{shilov2025datafilteringknowledgelocalization}.
+SGTM is a training method originally designed to make a group of parameters specialise on processing inputs from a target domain.
+One would expect that if SGTM were used to specialise a group of parameters on the forget domain, the forget domain would grow more disentangled from retain.
+We verify this intuition in~\cref{sec:entanglement}, and exploit it by varying the fraction of training steps in which we apply SGTM, producing models with different levels of disentanglement.
+This is our main change to the experimental setup from the original paper; we adapt the rest without modification.
+
+% --- Data ---
 
 \paragraph{Data.}
-Following the original paper, we train on English Wikipedia (approximately 3.7B tokens), using the same article-level topic labels derived from Wikipedia's \texttt{articletopic} classifier. We assign each training example to one of three categories that govern how it is treated during SGTM training:
-%
-\begin{itemize}[nosep,leftmargin=1.5em]
-  \item $\mathcal{D}_\text{forget}$: all articles classified as STEM.Biology (${\sim}3.7\%$ of training tokens);
-  \item $\mathcal{D}_\text{retain}$: a randomly sampled $10\%$ of the remaining (non-biology) articles, treated as confidently-labeled retain data;
-  \item $\mathcal{D}_\text{unlabeled}$: the remaining $90\%$ of non-biology articles, for which no label is assumed.
+Following the original paper, we train on English Wikipedia~\citep{TODO} (approximately 3.7B~tokens), using article-level topic labels derived from Wikipedia's \texttt{articletopic} classifier~\citep{TODO}, and splitting the data into three domains:
+\begin{itemize}
+  \item \emph{forget}: all articles classified as STEM.Biology (${\sim}3.7\%$ of training tokens);
+  \item \emph{adjacent}: articles on topics closely related to biology (Medicine~\& Health, Chemistry, Earth~\& Environment);
+  \item \emph{retain}: articles on general topics (Culture, Geography, History~\& Society).
 \end{itemize}
-%
-For evaluation, we hold out a biology test set (used to measure forget loss) and a non-biology test set spanning all other topic categories (used to measure retain loss). To reduce evaluation cost during our hyperparameter sweeps, we subsample $20\%$ of each test set and report all metrics on this fixed subsample.
+We hold out separate test sets for each domain.
+To reduce evaluation cost during our hyperparameter sweeps, we subsample $20\%$ of each test set and report all metrics on this fixed subsample.
 
 % --- Model ---
 
 \paragraph{Model.}
-We train a 254M-parameter GPT-Neo-style transformer with 16 layers, hidden dimension 1024, 32 attention heads, and MLP dimension 4096. We adopt all training hyperparameters from the original paper; see \cref{tab:training-hyperparams} in Appendix \ref{app:hyperparams} for the full configuration. In each transformer block, we designate a small subset of parameters as the \emph{forget subnetwork}:
+Following the original paper, we train a 254M-parameter GPT-Neo-style transformer with 16~layers, hidden dimension~1024, 32~attention heads, and MLP dimension~4096.
+In each transformer block, we designate a small subset of parameters as the \emph{biology subnetwork}:
 %
-\begin{itemize}[nosep,leftmargin=1.5em]
-  \item $\theta_\text{forget}$: 1 attention head (out of 32) and 64 MLP hidden units (out of 4{,}096) per block;
-  \item $\theta_\text{retain}$: all remaining parameters.
+\begin{itemize}
+  \item $\theta_\text{bio}$: 1~attention head (out of~32) and 64~MLP hidden units (out of~4{,}096) per block;
+  \item $\theta_\text{other}$: all remaining parameters.
 \end{itemize}
-%
-This designation is used during SGTM training (described next) to make $\theta_\text{forget}$ specialize on processing forget-domain data.
 
 % --- SGTM ---
 
-\paragraph{Training with SGTM.}
-SGTM is a modification to the training procedure that applies different interventions to the forward and backward passes depending on which of the three data categories ($\mathcal{D}_\text{forget}$, $\mathcal{D}_\text{retain}$, $\mathcal{D}_\text{unlabeled}$) an example belongs to. The interventions are summarized in \cref{tab:interventions}
+\paragraph{SGTM.}
+As in the original paper, we assign training examples to one of three routing categories:
+\begin{itemize}
+  \item \emph{route-bio}: all forget (i.e., all biology) examples;
+  \item \emph{route-other}: a randomly sampled $10\%$ of retain and adjacent examples;
+  \item \emph{route-ignore}: the remaining $90\%$ of retain and adjacent examples.
+\end{itemize}
 
-In the standard SGTM pipeline, these interventions are applied throughout training; our adaptation (described in the next paragraph) instead activates them for only a fraction of the training steps.
+Depending on an example's routing category, SGTM modifies the training procedure during both the forward and backward passes.
+For route-bio examples, gradients for~$\theta_\text{other}$ are zeroed after the backward pass, ensuring that biology knowledge flows only into~$\theta_\text{bio}$.
+\footnote{Unlike in the original paper, we do \emph{not} ablate~$\theta_\text{bio}$ after training.
+We use SGTM solely for the purpose of controlling disentanglement, not for unlearning itself.}
+For route-other examples, $\theta_\text{bio}$~is zeroed during the forward pass, training the model to perform well on non-target data even without the biology subnetwork.
+Route-ignore examples update all parameters via standard training.
+See~\cref{tab:interventions} for an overview.
 
-\begin{table}[h]
+\begin{table}[t]
   \centering
   \small
   \begin{tabular}{@{}lccc@{}}
     \toprule
-    \textbf{Data subset} & \textbf{Forward pass} & \textbf{Backward pass} & \textbf{Updated params} \\
+    \textbf{Routing category} & \textbf{Forward pass} & \textbf{Backward pass} & \textbf{Updated params} \\
     \midrule
-    $\mathcal{D}_\text{forget}$ & --- & Zero $\nabla_{\theta_\text{retain}}$ & $\theta_\text{forget}$ only \\
-    $\mathcal{D}_\text{unlabeled}$ & --- & --- & $\theta_\text{forget}$ and $\theta_\text{retain}$ \\
-    $\mathcal{D}_\text{retain}$ & Set $\theta_\text{forget} = 0$ & --- & $\theta_\text{retain}$ only$^{\dagger}$ \\
+    route-bio & --- & Zero $\nabla_{\theta_\text{other}}$ & $\theta_\text{bio}$ only \\
+    route-ignore & --- & --- & $\theta_\text{bio}$ and $\theta_\text{other}$ \\
+    route-other & Set $\theta_\text{bio} = 0$ & --- & $\theta_\text{other}$ only$^{\dagger}$ \\
     \bottomrule
   \end{tabular}
-  \caption{Training interventions in SGTM, applied per-example based on its data category. ``---'' indicates standard (unmodified) behavior. $^{\dagger}$\,$\theta_\text{forget}$ receives no gradient because its activations are zeroed during the forward pass.}
+  \caption{Training interventions in SGTM, applied to each example based on its routing category.
+    ``---'' indicates standard~(unmodified) behavior.
+  $^{\dagger}$\,$\theta_\text{bio}$ receives no gradient because its activations are zeroed during the forward pass.}
   \label{tab:interventions}
 \end{table}
 
-For forget examples, gradients for $\theta_\text{retain}$ are zeroed after the backward pass, ensuring that forget-domain knowledge flows only into the designated forget subnetwork. For retain examples, $\theta_\text{forget}$ is zeroed during the forward pass, training the model to perform well on retain data even without the forget subnetwork. Unlabeled examples update all parameters via standard training.
+% --- Training models with different levels of disentanglement ---
 
-% --- Our modification ---
-
-\paragraph{Creating a spectrum of entanglement.}
-To produce models with different degrees of disentanglement, we train six models with different amounts of SGTM exposure ($p$), ranging from $p=0\%$ to $p=100\%$. In a model with $p\%$ SGTM exposure, the first $(100{-}p)\%$ of training steps use standard training (no SGTM interventions), and the remaining $p\%$ apply full SGTM according to \cref{tab:interventions}. We train models with $p \in \{0, 20, 40, 60, 80, 100\}$, where $p{=}0$ is a fully standard model and $p{=}100$ applies SGTM during the entire training process (biology knowledge is strongly concentrated in $\theta_\text{forget}$). Intuitively, models with more SGTM exposure should exhibit greater separation of forget and retain knowledge in parameter space; we verify this in \cref{sec:entanglement} using several proxy metrics of entanglement from the literature.
-
-Readers already familiar with SGTM should note that after training we do \emph{not} ablate $\theta_\text{forget}$. We use SGTM solely for the purpose of controlling entanglement, not for unlearning itself. We also note that applying SGTM stochastically---routing each forget example with some probability rather than front-loading standard training and then switching to full SGTM---would produce substantial disentanglement even at low routing probabilities, due to the \emph{absorption effect} described by~\citet{cloud2024gradientroutingmaskinggradients, shilov2025datafilteringknowledgelocalization}. Our phased scheme avoids this by cleanly separating the standard and SGTM portions of training, yielding a more controllable spectrum of entanglement levels.
-
-% ======================================================================
+\paragraph{Training models with different levels of disentanglement.}
+In the original paper, SGTM was used for the whole training; we instead activate SGTM for only a fraction of the training steps, denoting this fraction $p\%$.
+We train six models with $p \in \{0, 20, 40, 60, 80, 100\}$;
+the first $(100{-}p)\%$ of steps use standard training, and the remaining $p\%$ use SGTM as described in the previous paragraph.
+\footnote{Applying SGTM stochastically---routing each example with some probability rather than front-loading standard training and then switching to full SGTM---would produce substantial disentanglement even at low $p$, due to the \emph{absorption effect} described in the original paper.}
 \subsection{Measuring Retain--Forget Trade-off During Unlearning}
 \label{sec:unlearning}
 

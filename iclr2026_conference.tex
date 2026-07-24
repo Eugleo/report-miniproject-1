@@ -15,7 +15,7 @@
 \usepackage{hyperref}
 \usepackage{url}
 
-\title{Disentangled Models Achieve Better Retain--Forget Tradeoffs during Unlearning}
+\title{Disentangled Models Achieve Better Retain--Forget Tradeoffs}
 
 \author{Evžen Wybitul \\
   University of Oxford \\
@@ -40,7 +40,30 @@
 
 \section{Introduction}
 
-% \section{Related Work}
+When knowledge that should be forgotten shares processing pathways, representations, or parameters with knowledge that should be retained --- in short, when the domains are \emph{entangled} in the model --- it is more difficult for unlearning methods to remove one without affecting the other.
+At least, this is how the common wisdom goes.
+And while this intuition is wide-spread in the unlearning literature \citep{barez2025openproblemsmachineunlearning}, experimental evidence supporting it has been lacking, especially in the context of large language models.
+
+\citet{zhao2024what} show that forget sets more entangled with the retain set in representation space are harder to unlearn.
+However, their methodology is limited to image models, and it holds the model and the unlearning methods fixed and swaps out different pairs of forget and retain sets to measure the difficulty of unlearning.
+Other past work holds the model and the forget and retain sets fixed and swaps out different unlearning methods --- usually, the authors propose a new method that intuitively increases disentanglement and report that it performs better compared to existing methods \citep{tang2026logitslatentscontrastiverepresentation, chen2026clue}.
+This experimental design conflates the effect of entanglement with the effect of the specific algorithmic intervention.
+A more direct test would hold the unlearning method and the datasets fixed and instead vary the degree of entanglement in the model being unlearned.
+To our knowledge, no prior work has conducted such a study, likely because it is difficult to control the degree of entanglement of two fixed datasets in a model.
+
+In this paper, we do exactly this.
+We use Selective Gradient Masking (SGTM)~\citep{shilov2025datafilteringknowledgelocalization}, an improved variant of gradient routing~\citep{cloud2024gradientroutingmaskinggradients}, to train a suite of models on English Wikipedia in which the knowledge of Biology is increasingly more and more localised to a specific set of parameters, disentangled from the others.
+We then apply three common unlearning methods to all models in our suite: Weighted Gradient Ascent~\citep{wang2025rethinking}, Weight Divergence Regularization~\citep{siddiqui2025dormant}, and RMU~\citep{li2024wmdp}.
+We find that more disentangled models consistently achieve better retain-forget trade-offs: at a fixed level of forgetting, the most disentangled model has $4\times$ lower retain cost than the most entangled model in WGA and RMU, and ${\sim}1.3\times$ lower in WDR.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\linewidth]{assets/wiki_retain_forget_tradeoff.pdf}
+  \caption{More disentangled models achieve better retain-forget trade-offs. The plot shows retain--forget Pareto frontiers for three unlearning methods across six models with varying SGTM exposure ($p$). Models are colored according to their Variance Entanglement Score (\cref{sec:entanglement}): the purple are less disentangled, the yellow are more disentangled.Each frontier is constructed over 4--6 hyperparameter configurations, shaded regions show $\pm 1$ standard error across 5 seeds. The axes are measured relative to each model's losses before unlearning.}
+  \label{figure:unlearning}
+\end{figure}
+
+Our results confirm the widespread intuition that knowledge entanglement is a meaningful factor in unlearning difficulty, and that standard unlearning methods benefit from operating on models with more separated internal representations.
 
 \section{Experimental Setup}
 
@@ -50,7 +73,7 @@ Our experimental pipeline has two stages: first, we train a suite of models with
 \subsection{Training a Spectrum of Disentangled Models with SGTM}
 \label{sec:training}
 
-For training disentangled models, we use SGTM~\cite{shilov2025datafilteringknowledgelocalization}, a recent method for training models so that pre-selected parameters are specialized to a target data domain. We closely follow the training setup in the original paper, including dataset, model architecture, the implementation of SGTM itself, and hyperparameters. \textbf{Our only modifications} are to reduce the number of evaluation examples, and to vary the fraction of training during which SGTM is active, producing six models that span a range of entanglement levels.
+For training disentangled models, we use SGTM~\citep{shilov2025datafilteringknowledgelocalization}, a recent method for training models so that pre-selected parameters are specialized to a target data domain. We closely follow the training setup in the original paper, including dataset, model architecture, the implementation of SGTM itself, and hyperparameters. \textbf{Our only modifications} are to reduce the number of evaluation examples, and to vary the fraction of training during which SGTM is active, producing six models that span a range of entanglement levels.
 
 \paragraph{Data.}
 Following the original paper, we train on English Wikipedia (approximately 3.7B tokens), using the same article-level topic labels derived from Wikipedia's \texttt{articletopic} classifier. We assign each training example to one of three categories that govern how it is treated during SGTM training:
@@ -105,7 +128,7 @@ For forget examples, gradients for $\theta_\text{retain}$ are zeroed after the b
 \paragraph{Creating a spectrum of entanglement.}
 To produce models with different degrees of disentanglement, we train six models with different amounts of SGTM exposure ($p$), ranging from $p=0\%$ to $p=100\%$. In a model with $p\%$ SGTM exposure, the first $(100{-}p)\%$ of training steps use standard training (no SGTM interventions), and the remaining $p\%$ apply full SGTM according to \cref{tab:interventions}. We train models with $p \in \{0, 20, 40, 60, 80, 100\}$, where $p{=}0$ is a fully standard model and $p{=}100$ applies SGTM during the entire training process (biology knowledge is strongly concentrated in $\theta_\text{forget}$). Intuitively, models with more SGTM exposure should exhibit greater separation of forget and retain knowledge in parameter space; we verify this in \cref{sec:entanglement} using several proxy metrics of entanglement from the literature.
 
-Readers already familiar with SGTM should note that after training we do \emph{not} ablate $\theta_\text{forget}$. We use SGTM solely for the purpose of controlling entanglement, not for unlearning itself. We also note that applying SGTM stochastically---routing each forget example with some probability rather than front-loading standard training and then switching to full SGTM---would produce substantial disentanglement even at low routing probabilities, due to the \emph{absorption effect} described by \citet{cloud2024gradientroutingmaskinggradients, shilov2025datafilteringknowledgelocalization}. Our phased scheme avoids this by cleanly separating the standard and SGTM portions of training, yielding a more controllable spectrum of entanglement levels.
+Readers already familiar with SGTM should note that after training we do \emph{not} ablate $\theta_\text{forget}$. We use SGTM solely for the purpose of controlling entanglement, not for unlearning itself. We also note that applying SGTM stochastically---routing each forget example with some probability rather than front-loading standard training and then switching to full SGTM---would produce substantial disentanglement even at low routing probabilities, due to the \emph{absorption effect} described by~\citet{cloud2024gradientroutingmaskinggradients, shilov2025datafilteringknowledgelocalization}. Our phased scheme avoids this by cleanly separating the standard and SGTM portions of training, yielding a more controllable spectrum of entanglement levels.
 
 % ======================================================================
 \subsection{Measuring Retain--Forget Trade-off During Unlearning}
@@ -118,7 +141,7 @@ In what follows, $\operatorname{CE}(\theta;\, \mathcal{D})$ denotes the mean per
 % --- WGA ---
 
 \paragraph{Weighted Gradient Ascent (WGA).}
-WGA combines gradient ascent on the forget set with gradient descent on the retain set~\cite{wang2025rethinking}, minimizing:
+WGA combines gradient ascent on the forget set with gradient descent on the retain set~\citep{wang2025rethinking}, minimizing:
 %
 \begin{equation*}
   \mathcal{L}_\text{WGA}(\theta)
@@ -132,7 +155,7 @@ where $\operatorname{CE}_\text{WGA}$ is a reweighted cross-entropy that scales e
 % --- WDR ---
 
 \paragraph{Weight Divergence Regularization (WDR).}
-Following \citet{siddiqui2025dormant}, we fine-tune on the retain set while simultaneously maximizing the $L_2$ distance between the current parameters $\theta$ and the original pretrained parameters $\theta_0$:
+Following~\citet{siddiqui2025dormant}, we fine-tune on the retain set while simultaneously maximizing the $L_2$ distance between the current parameters $\theta$ and the original pretrained parameters $\theta_0$:
 %
 \begin{equation*}
   \mathcal{L}_\text{WDR}(\theta)
@@ -141,7 +164,7 @@ Following \citet{siddiqui2025dormant}, we fine-tune on the retain set while simu
   \quad \lambda_\text{WDR} > 0
 \end{equation*}
 %
-This encourages the unlearned model to move far from the pretrained model in weight space, which \citet{siddiqui2025dormant} show correlates with improved tamper-resistance against relearning attacks.
+This encourages the unlearned model to move far from the pretrained model in weight space, which~\citet{siddiqui2025dormant} show correlates with improved tamper-resistance against relearning attacks.
 
 % --- RMU ---
 
@@ -158,7 +181,7 @@ For each method, we sweep over 4--6 hyperparameter configurations (varying learn
 \subsection{Models trained with more SGTM exposure are more disentangled}
 \label{sec:entanglement}
 
-Before evaluating unlearning, we verify that our phased training scheme (\cref{sec:training}) produces models with meaningfully different levels of entanglement. There is no single agreed-upon definition of entanglement, so following \citet{tang2026logitslatentscontrastiverepresentation} we adopt three complementary proxy metrics from the literature. All three metrics are described below.
+Before evaluating unlearning, we verify that our phased training scheme (\cref{sec:training}) produces models with meaningfully different levels of entanglement. There is no single agreed-upon definition of entanglement, so following~\citet{tang2026logitslatentscontrastiverepresentation} we adopt three complementary proxy metrics from the literature. All three metrics are described below.
 
 In \cref{figure:disentanglement}, we normalize each metric to $[0, 1]$ and plot how it varies with SGTM exposure~$p$. Across all three metrics, models with higher SGTM exposure ($p \geq 60\%$) show substantially greater retain--forget disentanglement than models with lower exposure ($p \leq 40\%$). As a control, we also compute each metric between the retain set and an the adjacent set, whose relationship to the retain set should not change with SGTM exposure. We find that retain--adjacent separation remains roughly constant across all values of~$p$, confirming that the observed trend reflects genuine localization of biology knowledge rather than a general distortion of the representation space.
 
@@ -207,12 +230,6 @@ In RMU, the retain-loss scale is two orders of magnitude smaller than in WDR, re
 
 It's important to note that the choice of unlearning method has a far larger effect on the retain--forget trade-off than the degree of entanglement. Disentanglement modulates the frontier within a method, but the method determines the operating regime. Our finding should be read not as ``disentangle your models before unlearning,'' but as evidence that unlearning difficulty depends on the degree of knowledge entanglement in the model.
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\linewidth]{assets/wiki_retain_forget_tradeoff.pdf}
-  \caption{Retain--forget Pareto frontiers for each unlearning method across six models with varying SGTM exposure ($p$). Each frontier is constructed over all hyperparameter configurations; shaded regions show $\pm 1$ standard error across 5 seeds. The $x$-axis shows the increase in biology (forget) loss and the $y$-axis shows the increase in non-biology (retain) loss, both relative to each model's pre-unlearning baseline. Frontiers closer to the $x$-axis are better (more forgetting per unit of retain degradation). Models are colored from more entangled (purple, low $p$) to more disentangled (orange, high $p$). In all three methods, more disentangled models achieve better trade-offs, with the clearest separation in WGA. Note the different $y$-axis scales: RMU incurs minimal retain cost regardless of entanglement. The $x$-axis is truncated at $0.4$, corresponding to the gap between a no-biology baseline and the most disentangled model's pre-unlearning forget loss; beyond this point, further forgetting is not practically meaningful.}
-  \label{figure:unlearning}
-\end{figure}
 \section*{Acknowledgments}
 
 \bibliography{iclr2026_conference}
@@ -257,7 +274,7 @@ See \cref{tab:training-hyperparams} for the full training hyperparameters.
     Mask embeddings & True \\
     \bottomrule
   \end{tabular}
-  \caption{Training hyperparameters, following \citet{shilov2025datafilteringknowledgelocalization}.}
+  \caption{Training hyperparameters, following~\citet{shilov2025datafilteringknowledgelocalization}.}
   \label{tab:training-hyperparams}
 \end{table}
 

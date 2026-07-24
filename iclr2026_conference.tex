@@ -150,9 +150,9 @@ the first $(100{-}p)\%$ of steps use standard training, and the remaining $p\%$ 
 \label{sec:unlearning}
 
 We apply three standard unlearning algorithms to each of the six models, using the forget and retain data defined in~\cref{sec:training}; adjacent data is used only for evaluation.
-Each algorithm is applied to the full model with no information about how it was trained or where biology knowledge might be stored.
+We do not give the algorithms any information about how the models were trained or where the forget knowledge might be stored.
 
-Our interest is not in comparing methods against each other, but in whether, \emph{within each method}, more disentangled models yield better retain--forget trade-offs.
+Our interest is not in comparing methods against each other, but in checking whether, \emph{within each method}, more disentangled models yield better retain--forget trade-offs.
 To that effect, for each method, we sweep over 4--6 hyperparameter configurations~(see Appendix \ref{app:unlearning-hyperparams} for the full list), and use the results to construct a retain--forget Pareto frontier for each method.
 We run each configuration on 5 seeds for a method-specific number of optimizer steps, with early stopping when the forget loss exceeds the loss of a model trained with no biology data plus a small buffer.
 
